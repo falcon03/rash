@@ -1,4 +1,4 @@
-/*
+/**
  * math2mathml.js - Version 0.1, August 30, 2016
  * Copyright (c) 2016, Vincenzo Rubano <vincenzorubano@email.it>
  * 
@@ -12,12 +12,12 @@
  * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR 
  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING 
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */var fs = require('fs');
+ */
 
 
+ var fs = require('fs');
 var page = require('webpage').create();
 var sys = require('system');
-
 phantom.onError = errorHandler
 page.onError = errorHandler
 // By default, PhantomJS won't display messages logged to the console by the web page.
@@ -27,8 +27,8 @@ page.onConsoleMessage = function(msg) {
 }
 // we need to route a callback from the document context to the Phantom context
 page.onCallback = function(data) {
-  if(data.reason === 'finishedRenderingMath') {
-    onFinishedRenderingMath();
+  if(data.reason === 'finishedConvertingFormulasToMathML') {
+    onFinishedConvertingFormulasToMathML();
   }
 }
 //Performance tweak: prevent css stylesheets from loading
@@ -62,37 +62,31 @@ else {
 }
 
 page.open(documentPath, function(status) {
-  if(status === 'success') {
-    page.evaluate(function() {
-      MathJax.Hub.Queue(function() {
-        // we need to cleanup the markup a bit.
-        // RASH depends on JQuery, so we can leverage it here as well.
-        // We remove all elements with the "cgen" class, introduced automatically by RASH.
-        $('.cgen').remove();
-        // The MathJax output for each formula is really complex, but we are only interested in its internal MathML.
-        // While MathJax offers a method to retrieve the MathML equivalent of a formula, it can unpredictably behave syncronously or asyncronously. This uncertainty makes its usage for our purpose problematic, so we extract the MathML equivalent of each formula manually.
-        var mathContainers = $('.rash-math');
-        var mathmlElements = $('.MJX_Assistive_MathML math');
-        for(var i=0;i<mathmlElements.length;i++) {
-          mathContainers.eq(i).replaceWith(mathmlElements.eq(i));
-        }
-        // MathJax adds a lot of inline stylesheets that we don't need, so we remove them all
-        $('head style').remove();
-                window.callPhantom({
-          reason: "finishedRenderingMath"
+    if(status === 'success') {
+      page.injectJs('math2mathml.lib.js');
+      page.evaluate(function() {
+        convertFormulasToMathML(function() {
+                                    window.callPhantom({
+        reason: "finishedConvertingFormulasToMathML"
+      });
         });
-        });
-    });
-  }
-  else {
+      });
+      }
+      else { // Page not loaded
     console.error("Error while loading the document. Status: "+status+"\n");
     phantom.exit(1);
-  }
+    }
 });
 
-function onFinishedRenderingMath() {
+function onFinishedConvertingFormulasToMathML() {
   try {
-    fs.write(outputPath, page.content, "w");
+    //retrieve the XHTML from the DOM
+    var pageContent = page.evaluate(function() {
+      cleanDocument();
+      var serializer = new XMLSerializer();
+      return serializer.serializeToString(document);
+    });
+    fs.write(outputPath, pageContent, "w");
     phantom.exit();
   }
   catch(error) {
